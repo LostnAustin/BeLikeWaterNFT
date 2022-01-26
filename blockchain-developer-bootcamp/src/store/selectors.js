@@ -1,4 +1,4 @@
-import { get, reject, groupBy } from 'lodash'
+import { get, reject, groupBy, maxBy, minBy } from 'lodash'
 import moment from 'moment'
 import { createSelector } from 'reselect'
 import { ETHER_ADDRESS, tokens, ether, GREEN, RED } from '../helpers'
@@ -271,4 +271,53 @@ export const myOpenOrdersSelector = createSelector(
       orderType,
       orderTypeClass: (orderType === 'buy' ? GREEN : RED)
     })
+  }
+
+  export const priceChartLoadedSelector = createSelector(filledOrdersLoaded, loaded => loaded)
+
+  export const priceChartSelector = createSelector(
+    filledOrders,
+    (orders) => {
+      //sort orders by ascending
+      orders = orders.sort((a,b) => a.timestamp - b.timestamp)
+      //decorate
+      orders = orders.map((o) => decorateOrder(o))
+      //get last 2 orders for final price and price change
+      let secondLastOrder, lastOrder
+      [secondLastOrder, lastOrder] = orders.slice(orders.length - 2, orders.length)
+      //last order price
+      const lastPrice = get(lastOrder, 'tokenPrice', 0)
+      const secondLastPrice = get(secondLastOrder, 'tokenPrice', 0)
+      
+      return({
+        lastPrice,
+        lastPriceChange: (lastPrice >= secondLastPrice ? "+" : "-"),
+        series: [{
+          data: buildGraphData(orders)
+        }]
+      })
+    }
+  )
+
+  const buildGraphData = (orders) => {
+    //group orders by the hour and converted to unix
+    orders = groupBy(orders, (o) => moment.unix(o.timestamp).startOf('hour').format())
+    //get hours where data exists
+    const hours = Object.keys(orders)
+    //build the graph in series
+    const graphData = hours.map((hour) => {
+      //fetch open orders
+      const group = orders[hour]
+      //calculate price values for: open/high/low/close
+      const open = group[0] // first order
+      const high = maxBy(group, 'tokenPrice')
+      const low = minBy(group, 'tokenPrice')
+      const close = group[group.length -1] // last order
+      
+      return({
+        x: new Date(hour),
+        y: [open.tokenPrice, high.tokenPrice, low.tokenPrice, close.tokenPrice]
+      })
+    })
+    return graphData
   }
